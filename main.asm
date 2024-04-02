@@ -6,6 +6,8 @@
 ;       - try to fix flickering graphics which gets more noticeable as snake gets longer (a temporary fix is to set cpu cycles to max on dosbox)
 ;       - check for collision with self
 ;       - food "rng" is not really random; sometimes food spawns on on snake's body 
+;       - decide on a wall storing approach
+;       - wall collision
 .model small
 .stack 10h
 .data
@@ -20,6 +22,31 @@
     food_y dw 10
     temp_x dw ?             
     temp_y dw ?             
+
+    ;walls
+    difficulty dw 2h    ;change difficulty here (0 = easy, 1 = medium, 2 = hard)
+    diffrand dw 0h
+    wall_block_count dw 0h
+    active_walls_x dw 255 dup (?)
+    active_walls_y dw 255 dup (?)
+
+    ;PROBLEM: these wall coords are hardcoded for 8px, because i'm not sure how to scale the gaps between them to square_size in asm
+    ;POSSIBLE sol: according to the doc, we only have straight, 1px x 3px inner walls on the field, maybe we can just store the 'starting coordinate', and 'direction' of each wall?
+    ;then just build the rest of the wall from that starting coordinate/root in the specified direction. something to look into
+    ;TODO: decide what approach to take for walls
+
+    ;note: dosbox bounds are 140h (320) x 0c8h (200) (1x1)
+    ;medium walls
+    med1_x dw 0050h,0050h,0050h,00f0h,00f0h,00f0h
+    med1_y dw 005ch,0064h,006ch,005ch,0064h,006ch
+    med2_x dw 0098h,00a0h,00a8h,0098h,00a9h,0098h
+    med2_y dw 0032h,0032h,0032h,0096h,0096h,0096h
+    
+    ;hard walls
+    hard1_x dw 0046h,0046h,0046h,008ch,008ch,008ch,00d2h,00d2h,00d2h,0118h,0118h,0118h
+    hard1_y dw 005ch,0064h,006ch,005ch,0064h,006ch,005ch,0064h,006ch,005ch,0064h,006ch
+    hard2_x dw 00a0h,00a0h,00a0h,00a0h,00a0h,00a0h,000ah,0012h,001ah,0136h,012eh,0126h
+    hard2_y dw 000ah,0012h,001ah,00beh,00b6h,00aeh,0064h,0064h,0064h,0064h,0064h,0064h
     
     strScore db 'Score:'
     strScore_s equ $-strScore 
@@ -39,6 +66,7 @@
         mov word ptr [si], 0Ah
         mov word ptr [di], 0Ah
         call rng 
+        call init_walls
         game_loop:
             call input
             call draw
@@ -155,6 +183,41 @@
             cmp ax, square_size 
             jle draw_food 
         
+        
+        lea si, active_walls_x
+        lea di, active_walls_y  
+        mov bp, 0
+        
+        ;walls 
+        getwall:
+            mov cx, word ptr [si] 
+            mov dx, word ptr [di] ; point to active wall x and y coords
+
+        drawwall:
+            mov ax, 0c0fh
+            mov bh, 00h
+            int 10h         ;draw pixel
+
+            inc cx              
+            mov ax, cx
+            sub ax, word ptr [si] 
+            cmp ax, square_size
+            jle drawwall       ; check if entire pixel has been drawn on the x axis
+
+            mov cx, word ptr [si]
+            inc dx 
+
+            mov ax, dx          
+            sub ax, word ptr [di]
+            cmp ax, square_size 
+            jle drawwall       ; check if entire pixel has been drawn on the y axis
+            
+            add si, 2   ; get next x and y coords
+            add di, 2
+            ; check if we've gone through all the wall coords
+            inc bp         
+            cmp bp, wall_block_count
+            jl getwall
         ret 
     
     input:
@@ -271,6 +334,8 @@
             mov bh, 00h
             int 10h 
        ; insert self collision here
+    
+       ;insert wall collision here
 
        ; food collision
             cmp al, 04h
@@ -281,4 +346,144 @@
             call rng 
             
         return: ret
+
+    ;walls stuff
+    init_walls:     ;definitely not the best way to write this but hey at least its modular (kinda) :kekw:
+                call rng_walls
+                mov dx, diffrand
+                mov cx, difficulty
+                cmp cx, 0h
+                jne checkmed
+                ret
+                
+    checkmed:   cmp cx, 1h
+                jne hard
+                ;medstage1
+                cmp dx, 0h
+                jne medstage2
+                call cmed1
+                ret
+    medstage2:  cmp dx, 1h
+            ;   jne medstage3
+                call cmed2
+                ret
+                ;hardstage1
+    hard:       cmp dx, 0h
+                jne hardstage2
+                call chard1
+                ret
+    hardstage2: cmp dx, 1h
+                ;jne hardstage3
+                call chard2
+                ret
+
+    ;wall calls
+    ;med1       
+    cmed1:      mov wall_block_count, 6h
+                ;med1 x coords
+                lea si, active_walls_x
+                lea di, med1_x
+                mov cx, 6h
+    med1xloop:  mov dx, word ptr [di]
+                mov word ptr [si], dx
+                add si, 2
+                add di, 2
+                dec cx
+                jnz med1xloop
+                ;med1 y coords
+                lea si, active_walls_y
+                lea di, med1_y
+                mov cx, 6h
+    med1yloop:  mov dx, word ptr [di]
+                mov word ptr [si], dx
+                add si, 2
+                add di, 2
+                dec cx
+                jnz med1yloop
+                ret
+    ;med2
+    cmed2:      mov wall_block_count, 6h
+                ;med1 x coords
+                lea si, active_walls_x
+                lea di, med2_x
+                mov cx, 6h
+    med2xloop:  mov dx, word ptr [di]
+                mov word ptr [si], dx
+                add si, 2
+                add di, 2
+                dec cx
+                jnz med2xloop
+                ;med1 y coords
+                lea si, active_walls_y
+                lea di, med2_y
+                mov cx, 6h
+    med2yloop:  mov dx, word ptr [di]
+                mov word ptr [si], dx
+                add si, 2
+                add di, 2
+                dec cx
+                jnz med2yloop
+                ret
+
+    ;hard1
+    chard1:     mov wall_block_count, 0ch
+                ;med1 x coords
+                lea si, active_walls_x
+                lea di, hard1_x
+                mov cx, 0ch
+    hard1xloop: mov dx, word ptr [di]
+                mov word ptr [si], dx
+                add si, 2
+                add di, 2
+                dec cx
+                jnz hard1xloop
+                ;med1 y coords
+                lea si, active_walls_y
+                lea di, hard1_y
+                mov cx, 0ch
+    hard1yloop: mov dx, word ptr [di]
+                mov word ptr [si], dx
+                add si, 2
+                add di, 2
+                dec cx
+                jnz hard1yloop
+                ret
+    ;hard2
+    chard2:     mov wall_block_count, 0ch
+                ;med1 x coords
+                lea si, active_walls_x
+                lea di, hard2_x
+                mov cx, 0ch
+    hard2xloop: mov dx, word ptr [di]
+                mov word ptr [si], dx
+                add si, 2
+                add di, 2
+                dec cx
+                jnz hard2xloop
+                ;med1 y coords
+                lea si, active_walls_y
+                lea di, hard2_y
+                mov cx, 0ch
+    hard2yloop: mov dx, word ptr [di]
+                mov word ptr [si], dx
+                add si, 2
+                add di, 2
+                dec cx
+                jnz hard2yloop
+                ret
+
+    
+    rng_walls:
+        ;get random num from 0-9 using sys time. stackoverflow is very epic
+        mov ah, 00h
+        int 1ah
+        mov ax, dx
+        xor dx, dx ;clear dx
+        mov cx, 10
+        div cx
+        and dx, 01h;    ;AND the result by 0001h, we only grab the first bit for a 0-1 random range.
+                        ;if we want to increase the stage selection, we AND it by 0002h for a 0-3 range, which increases the options to 4 stages, etc.
+                        ;not evenly distributed tbh
+        mov diffrand, dx
+        ret
 end
