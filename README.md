@@ -23,10 +23,11 @@ ex.
 ```
 
 FILES:
+```
   fileio.asm <- my schizophrenia in all its glory, contains the logic for file i/o and sorting 
   scores.asm <- prints the records (not formatted for UI, just prints them for terminal and shows how u can read and access the records)
     NOTE: change the filename to the dir u want to put the sample data in. MAKE SURE this change is also reflected in fileio.asm
     
   main.asm <- actual game, w/ the implementation
     NOTE: has its own separate dir for its file, u can change it. u can link scores.asm to this file to display its contents
-    
+```
