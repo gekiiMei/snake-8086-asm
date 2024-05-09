@@ -7,6 +7,7 @@ sort
 ((not the best, better to do a linear search for the first possible slot during input, then just shift the rest of the bits to the right but this is the easiest way to do this rn))
 
 structure of the array;
+```
 byte 1 = number of scores stored (this gets capped at 5 when storing into file. during sorting, it can go beyond 5 so it sortts properly, but any recrods beyond the 5th one are truncated when saving into the file)
 bytes 2-4 = the username; first of the records
 byte 5 = string terminator
@@ -19,6 +20,7 @@ ex.
             'GEK$', 000h, 009h
             'KIM$', 000h, 004h
             'JON$', 000h, 001h
+```
 
 FILES:
   fileio.asm <- my schizophrenia in all its glory, contains the logic for file i/o and sorting 
