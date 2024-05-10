@@ -29,8 +29,8 @@ FILES:
     NOTE: change the filename to the dir u want to put the sample data in. MAKE SURE this change is also reflected in fileio.asm
     
   main.asm <- actual game, w/ the implementation
-    NOTE: has its own separate dir (snakescor.txt) for its file, u can change it. u can link scores.asm to this file to display its contents
+    NOTE: has its own separate dir (snekscor.txt) for its file, u can change it. u can link scores.asm to this file to display its contents
 
   DATA.txt <- place it wherever u set it to (default as it is is TASM dir\progs\snek\data.txt)
-  SNAKESCOR.txt <- smae thing (default is TASM dir\snakescor.txt)
+  SNEKSCOR.txt <- smae thing (default is TASM dir\snakescor.txt)
 ```
