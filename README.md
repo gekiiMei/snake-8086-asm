@@ -31,8 +31,8 @@ FILES:
   main.asm <- actual game, w/ the implementation
     NOTE: has its own separate dir (snekscor.txt) for its file, u can change it. u can link scores.asm to this file to display its contents
 
-  DATA.txt <- place it wherever u set it to (default as it is is TASM dir\progs\snek\data.txt)
+  DATA.txt <- place it wherever u set it to (default as it is is \progs\snek\data.txt)
   SNEKSCOR.txt <- smae thing 
 
-NOTE! PLACE FILES IN PROGS\SNEK (OR WHEREVER SCORES.ASM AND MAIN.ASM ARE)! READING BECOMES FUCKED OTHERWISE
+NOTE! PLACE FILES IN \PROGS\SNEK\ (OR WHEREVER SCORES.ASM AND MAIN.ASM ARE)! READING BECOMES FUCKED OTHERWISE
 ```
