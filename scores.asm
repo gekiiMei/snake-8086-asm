@@ -1,7 +1,7 @@
 .model small
 .stack 100h
 .data
-    filename db 'progs\snek\data.txt', 0
+    filename db 'progs\snek\snekscor.txt', 0
     handle dw ?
     scores db 00h, 6*6 dup (0)
     strbuf db 4 dup(?)
