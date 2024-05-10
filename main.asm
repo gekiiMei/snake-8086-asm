@@ -26,7 +26,7 @@
     strScore db 'Score:'
     strScore_s equ $-strScore
 
-    score_file db 'snekscor.txt', 0 ;looks for file in the dir where tasm.exe is. can be changed once we have a definite file struct
+    score_file db 'progs\snek\snekscor.txt', 0 ;looks for file in the dir where tasm.exe is. can be changed once we have a definite file struct
     handle dw ?
     scores db 00h, 6*50 dup (0)
     uname db 'GEK$'
@@ -593,45 +593,45 @@
             inc ch
             mov byte ptr[si], ch
             
-            ; ;SORTING
-            ; mov dh, ch
-            ; ;ch = outer loop counter
-            ; ;dh = inner loop counter
-            ; outsort:
-            ;     lea si, scores ;reset pointers
-            ;     lea di, scores
-            ;     add si, 06h
-            ;     add di, 06h
-            ;     push cx
-            ;     mov ch, dh
-            ;     insort:
-            ;         mov di, si
-            ;         mov al, byte ptr [si]
-            ;         mov ah, byte ptr [si-1]
-            ;         mov bl, byte ptr [si+6]
-            ;         mov bh, byte ptr [si+5]
-            ;         cmp ax, bx
-            ;         jge noswap
-            ;         add di, 01h
-            ;         sub si, 05h
-            ;         mov dl, 06h
-            ;         swapscore:
-            ;             mov bh, byte ptr [di]
-            ;             mov bl, byte ptr [si]
-            ;             mov byte ptr [di], bl
-            ;             mov byte ptr [si], bh
-            ;             inc si
-            ;             inc di
-            ;             dec dl
-            ;             jnz swapscore
-            ;         noswap:
-            ;         add si, 06h
-            ;         dec ch 
-            ;     jnz insort
-            ;     pop cx
-            ;     dec dh
-            ;     dec ch
-            ; jnz outsort
+            ;SORTING
+            mov dh, ch
+            ;ch = outer loop counter
+            ;dh = inner loop counter
+            outsort:
+                lea si, scores ;reset pointers
+                lea di, scores
+                add si, 06h
+                add di, 06h
+                push cx
+                mov ch, dh
+                insort:
+                    mov di, si
+                    mov al, byte ptr [si]
+                    mov ah, byte ptr [si-1]
+                    mov bl, byte ptr [si+6]
+                    mov bh, byte ptr [si+5]
+                    cmp ax, bx
+                    jge noswap
+                    add di, 01h
+                    sub si, 05h
+                    mov dl, 06h
+                    swapscore:
+                        mov bh, byte ptr [di]
+                        mov bl, byte ptr [si]
+                        mov byte ptr [di], bl
+                        mov byte ptr [si], bh
+                        inc si
+                        inc di
+                        dec dl
+                        jnz swapscore
+                    noswap:
+                    add si, 06h
+                    dec ch 
+                jnz insort
+                pop cx
+                dec dh
+                dec ch
+            jnz outsort
 
             ;cap score size for storage
             lea si, scores
