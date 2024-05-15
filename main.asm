@@ -1,84 +1,598 @@
-; NOTES: - probably very inefficient idk
-;        - works on both TASM and MASM
-;        - press esc key to exit game
-;        - w, a, s, d to move
-; TODOs:
-;       - try to fix flickering graphics which gets more noticeable as snake gets longer (a temporary fix is to set cpu cycles to max on dosbox)
-;       - check for collision with self
-;       - food "rng" is not really random; sometimes food spawns on on snake's body 
-;       - decide on a wall storing approach
-;       - wall collision
 .model small
-.stack 10h
+.stack 100h
 .data
-    square_size dw 8h      ; change size of snake/food here
-    body_x dw 255 dup (?)    ; change max length of snake here
-    body_y dw 255 dup (?)    ; change max length of snake here
+    snake_pos dw 960 dup (?) ; higher byte = x coord | lower byte = y coord    ; dosbox screen is 27hx18h adjusted for 8x8 sprites  
     snake_length dw 0
     key_pressed db 'd'
     prev_key db ?
     time_now db 00h
-    food_x dw 10            
-    food_y dw 10
-    temp_x dw ?             
-    temp_y dw ?             
+    food_pos dw 0A0Ah
+    temp_pos dw ?
+    border_pos dw 28h+28h+18h+18h dup (?)
+    paused db 0
 
-    ;walls
-    difficulty dw 2h    ;change difficulty here (0 = easy, 1 = medium, 2 = hard)
-    diffrand dw 0h
-    wall_block_count dw 0h
-    active_walls_x dw 255 dup (?)
-    active_walls_y dw 255 dup (?)
+    difficulty db ?  ; change difficulty here | 0 = easy, 1 = med, 2 = hard
 
-    ;PROBLEM: these wall coords are hardcoded for 8px, because i'm not sure how to scale the gaps between them to square_size in asm
-    ;POSSIBLE sol: according to the doc, we only have straight, 1px x 3px inner walls on the field, maybe we can just store the 'starting coordinate', and 'direction' of each wall?
-    ;then just build the rest of the wall from that starting coordinate/root in the specified direction. something to look into
-    ;TODO: decide what approach to take for walls
+    med_pos dw 12,0802h,0803h,0804h,0805h,0806h,0807h,2016h,2015h,2014h,2013h,2012h,2011h                  
+    hard_pos dw 24,0802h,0803h,0804h,0805h,0806h,0807h,2016h,2015h,2014h,2013h,2012h,2011h,0110h,0210h,0310h,0410h,0510h,0610h,260Ah,250Ah,240Ah,230Ah,220Ah,210Ah
 
-    ;note: dosbox bounds are 140h (320) x 0c8h (200) (1x1)
-    ;medium walls
-    med1_x dw 0050h,0050h,0050h,00f0h,00f0h,00f0h
-    med1_y dw 005ch,0064h,006ch,005ch,0064h,006ch
-    med2_x dw 0098h,00a0h,00a8h,0098h,00a9h,0098h
-    med2_y dw 0032h,0032h,0032h,0096h,0096h,0096h
-    
-    ;hard walls
-    hard1_x dw 0046h,0046h,0046h,008ch,008ch,008ch,00d2h,00d2h,00d2h,0118h,0118h,0118h
-    hard1_y dw 005ch,0064h,006ch,005ch,0064h,006ch,005ch,0064h,006ch,005ch,0064h,006ch
-    hard2_x dw 00a0h,00a0h,00a0h,00a0h,00a0h,00a0h,000ah,0012h,001ah,0136h,012eh,0126h
-    hard2_y dw 000ah,0012h,001ah,00beh,00b6h,00aeh,0064h,0064h,0064h,0064h,0064h,0064h
-    
     strScore db 'Score:'
-    strScore_s equ $-strScore 
+    strScore_s equ $-strScore
 
+    ;main menu
+    strTitle db "BSCS 2-2, Group 1",13,10
+    strTitle_l equ $-strTitle
+
+    strYear db "[v1.0] | 2024",13,10
+    strYear_l equ $ - strYear
+
+    ;main menu choices
+    strStart db "[S] START",13,10
+    strStart_l equ $ - strStart
+
+    strLeaderboard db "[L] LEADERBOARD",13,10
+    strLeaderboard_l equ $ - strLeaderboard
+
+    strMech db "[M] MECHANICS",13,10
+    strMech_l equ $ - strMech
+
+    strExit db "[ESC] EXIT",13,0
+    strExit_l equ $ - strExit
+
+    ;difficulty options
+    strDiffSelec db "SELECT A DIFFICULTY",13,10
+    strDiffSelec_l equ $ - strDiffSelec
+
+    strEasy db "[1] EASY",13,10
+    strEasy_l equ $ - strEasy
+
+    strModerate db "[2] MODERATE",13,10
+    strModerate_l equ $ - strModerate
+
+    strHard db "[3] HARD",13,10
+    strHard_l equ $ - strHard
+
+    strBack db "[B] BACK",13,10
+    strBack_l equ $ - strBack
+    
+    ;leaderboard
+    strLeadPage db "LEADERBOARD",13,10
+    strLeadPage_l equ $ - strLeadPage
+
+    ;gameover choices
+    strGameOver db "GAME OVER!",13,10
+    strGameOver_l equ $ - strGameOver
+
+    strScore_GO db "SCORE: ",13,10
+    strScore_GO_l equ $ - strScore_GO
+
+    intScore db '0' ;placeholder for score value
+
+    strRetry db "[R] RETRY",13,10
+    strRetry_l equ $ - strRetry
+
+    strMenu db "[M] MAIN MENU",13,10
+    strMenu_l equ $ - strMenu 
+
+    ;mechanics
+    strMechMsg db "HOW TO PLAY",13,10
+    strMechMsg_l equ $ - strMechMsg
+
+    ;invalid choice
+    strInvalid db "Invalid choice!",13,10
+    strInvalid_l equ $ - strInvalid
+
+    strUname db "Enter your name:",13,10
+    strUname_l equ $-strUname
+
+    strCont db "Press any key to continue...",13,10
+    strCont_l equ $-strCont
+
+    ;player input
+    charResp db ?
+
+    filename db 'data.txt', 0
+    handle dw ?
+    ; scores db 05h
+    ;        db 'JOE$', 000h, 010h
+    ;        db 'BEN$', 000h, 00Fh
+    ;        db 'GEK$', 000h, 009h
+    ;        db 'KIM$', 000h, 004h
+    ;        db 'JON$', 000h, 001h
+    ;----expected output from scores.asm
+    ; JOE 016 BEN 015 GEK 009 KIM 004 JON 001
+
+    scores db 00h, 6*50 dup (0)
+    ;inputs here
+    uname db 'JOE$'
+    iscore db 000h, 010h
+    strbuf db 4 dup(?)
+    screbuf db 00h
+  
 .code
     mov ax, @data
     mov ds, ax 
-    mov es, ax 
+    mov ax, 0001h
+    lea di, border_pos
+
+    gen_border_top:
+        cmp ah, 28h
+        je bottom_border
+        mov word ptr [di], ax 
+        inc ah
+        add di, 2
+        jmp gen_border_top
+    
+    bottom_border:
+        mov ax, 0031h
+    gen_border_bottom:
+        cmp ah, 28h
+        je left_border 
+        mov word ptr [di], ax 
+        inc ah 
+        add di, 2
+        jmp gen_border_bottom
+
+    left_border:
+        mov ax, 0002h
+    gen_border_left:
+        cmp al, 18h
+        je right_border
+        mov word ptr [di], ax 
+        inc al 
+        add di, 2
+        jmp gen_border_left
+    
+    right_border:
+        mov ax, 2702h
+    gen_border_right:
+        cmp al, 18h
+        je main
+        mov word ptr [di], ax 
+        inc al 
+        add di, 2
+        jmp gen_border_right
+    
     main:
         mov ax, 0013h
         int 10h
         mov ah, 0Bh
         mov bx, 0000h
         int 10h
-        lea si, body_x
-        lea di, body_y 
-        mov word ptr [si], 0Ah
-        mov word ptr [di], 0Ah
-        call rng 
-        call init_walls
+        
+    
+    
+    menu_page:
+        mov ax, @data
+        mov es, ax
+        call cls
+        
+        ;write title
+        mov dh, 20 ;row
+        mov dl, 12 ;column
+        mov bl, 0Ch ;color
+        mov cx, strTitle_l
+        lea bp, strTitle
+        call str_out
+
+        ;write year
+        mov dh, 21
+        mov dl, 13
+        mov bl, 0Fh
+        mov cx, strYear_l
+        lea bp, strYear
+        call str_out
+
+        ;write menu choices
+        mov dh, 11
+        mov dl, 14
+        mov bl, 0Eh 
+            ;start 
+        mov cx, strStart_l
+        lea bp, strStart
+        call str_out
+            ;leaderboard
+        mov dh, 13
+        mov cx, strLeaderboard_l
+        lea bp, strLeaderboard
+        call str_out
+            ;mechanics
+        mov dh, 15
+        mov cx, strMech_l
+        lea bp, strMech
+        call str_out
+            ;exit
+        mov dh, 17
+        mov dl, 14
+        mov bl, 0Eh
+        mov cx, strExit_l
+        lea bp, strExit
+        call str_out
+        ;get resp
+        call resp 
+        ;if s, start
+        cmp al, 's'
+            je mm_diff
+        cmp al, 'l'
+            je mm_lead
+        cmp al, 'm'
+            je mm_mech
+        cmp al, 27
+            je exit
+            call InvalidMsg
+            jmp menu_page
+        
+            mm_diff: jmp diff_page
+            mm_lead: jmp lead_page
+            mm_mech: jmp mech_page
+
+        exit:
+            mov ah, 4ch
+            int 21h 
+
+        diff_page:
+            mov ax, @data
+            mov es, ax
+            call cls
+            ;write diff prompt
+            mov dh, 7 ;row
+            mov dl, 10 ;column
+            mov bl, 0Ch ; red
+            mov cx, strDiffSelec_l
+            lea bp, strDiffSelec
+            call str_out
+
+            ;write diff choices
+            mov dh, 10
+            mov dl, 14
+            mov bl, 0Eh ; yellow
+                ;easy
+            mov cx, strEasy_l
+            lea bp, strEasy
+            call str_out
+                ;mod
+            mov dh, 12
+            mov cx, strModerate_l
+            lea bp, strModerate
+            call str_out
+                ;hard
+            mov dh, 14
+            mov cx, strHard_l
+            lea bp, strHard
+            call str_out
+                ;back
+            mov dh, 17
+            mov cx, strBack_l
+            lea bp, strBack
+            call str_out
+
+            ;get resp
+            call resp
+            cmp al, '1'
+                jnz med
+                mov difficulty, 0
+                call main_loop
+            med:
+            cmp al, '2'
+                jnz hard 
+                mov difficulty, 1
+                call main_loop
+            hard:
+            cmp al, '3'
+                jnz mm 
+                mov difficulty, 2
+                call main_loop
+            mm:
+            cmp al, 'b'
+                je df_menu
+                call InvalidMsg
+                jmp diff_page
+                df_menu: jmp menu_page
+            
+        
+        game_over_page proc
+            mov ax, @data
+            mov es, ax
+            call cls
+
+            ;write game over prompt
+            mov dh, 7 ;row
+            mov dl, 14 ;column
+            mov bl, 0Ch ;color
+            mov cx, strGameOver_l
+            lea bp, strGameOver
+            call str_out
+
+            ;write score prompt
+            mov dh, 8
+            mov dl, 14
+            mov bl, 0Ah
+            mov cx, strScore_GO_l
+            lea bp, strScore_GO
+            call str_out
+                ;write score int
+                mov ax, snake_length
+                mov cx, 03h
+                divide_score:         ; convert to decimal
+                    xor dx, dx
+                    mov bx, 0ah
+                    div bx
+                    push dx
+                    loop divide_score
+
+                mov bp, strScore_GO_l
+
+                print_score:
+                    mov dh, 8
+                    mov dl, 14
+                    inc bp
+                    mov ah, 02h         ; place cursor after strScore
+                    add dx, bp
+                    int 10h
+
+                    pop dx
+                    mov ah, 09h
+                    mov bx, 000Ah
+                    mov cx, 1
+                    mov al, dl
+                    add al, '0'
+                    int 10h         ; print ascii
+
+                    mov ax, strScore_GO_l
+                    mov bx, bp
+                    sub bx, ax
+                    cmp bx, 2
+                    jle print_score     
+
+            ;write diff choices
+            mov dh, 10
+            mov dl, 14
+            mov bl, 0Eh ; yellow
+                ;easy
+            mov cx, strRetry_l
+            lea bp, strRetry
+            call str_out
+                ;mod
+            mov dh, 12
+            mov cx, strMenu_l
+            lea bp, strMenu
+            call str_out
+
+            call resp
+            cmp al, 'r'
+                jz retry
+
+            cmp al, 'm'
+                je go_menu
+
+            cmp al, 27
+                je go_exit
+                call InvalidMsg
+                call game_over_page
+
+                retry: jmp diff_page
+                go_menu: jmp menu_page
+                go_exit: jmp exit
+            ret
+        game_over_page endp
+
+    lead_page:
+        mov ax, @data
+        mov es, ax
+        call cls
+
+        ;write leaderboard prompt
+        mov dh, 7 ;row
+        mov dl, 14 ;column
+        mov bl, 0Ah ;color
+        mov cx, strLeadPage_l
+        lea bp, strLeadPage
+        call str_out
+        
+    mov ax, @data
+    mov ds, ax
+    mov ax, 3d02h
+    lea dx, filename
+    int 21h
+    mov handle, ax
+    ;seek to start of file
+    mov ax, 4200h
+    mov bx, handle
+    mov cx, 0
+    mov dx, 0
+    int 21h
+
+    ;read from file
+    mov ah, 3fh
+    mov bx, handle
+    mov cx, 1fh
+    lea dx, scores
+    int 21h
+
+    lea si, scores
+    mov ch, byte ptr [si]
+    ;ch = number of records
+    inc si
+    iter_scores:
+        lea di, strbuf
+        mov cl, 04h
+        ldbuf:
+            mov dl, byte ptr [si]
+            mov byte ptr [di], dl
+            inc di
+            inc si
+            dec cl
+            jnz ldbuf
+
+        mov ah, 02h
+        mov dl, 0ah
+        int 21h 
+
+        push cx
+        mov cx, 16
+        call printsp 
+       
+        pop cx
+        lea dx, strbuf
+        mov ah, 09h
+        int 21h
+
+        mov ah, 02h
+        mov dl, 20h
+        int 21h
+        
+        mov ah, byte ptr [si]
+        inc si
+        mov al, byte ptr [si]
+        push cx
+        mov cx, 03h
+        int_score:         ; convert to decimal (thank u raffy)
+            xor dx, dx
+            mov bx, 0ah
+            div bx
+            push dx
+        loop int_score
+        mov cx, 03h
+        printnum:
+            pop dx
+            add dx, '0'
+            mov ah, 02 
+            int 21h
+        loop printnum
+        inc si
+        pop cx
+        dec ch
+        mov ah, 02h
+        mov dl, 10
+        int 21h
+    jnz iter_scores
+
+        ;mov ah, 4ch
+        ;int 21h
+
+        back_to_menu:
+        mov dl, 14
+        mov bl, 0Eh ; yellow
+        mov dh, 19
+        mov cx, strBack_l
+        lea bp, strBack
+        call str_out
+
+        call resp
+        cmp al, 'b'
+            je lead_back
+            call InvalidMsg
+            jmp lead_page
+
+            lead_back: jmp menu_page
+            
+    mech_page:
+        ;write leaderboard prompt
+        call cls
+        mov dh, 7 ;row
+        mov dl, 14 ;column
+        mov bl, 0Eh ;color
+        mov cx, strMechMsg_l
+        lea bp, strMechMsg
+        call str_out
+
+        jmp back_to_menu
+
+    main_loop proc
+        call rng
+        lea si, snake_pos
+        mov word ptr [si], 0A0Ah ; snake's initial position 
+        mov byte ptr key_pressed, 'd'
+        mov byte ptr prev_key, 's'
+        mov bp, snake_length 
+        clear_snake:
+            cmp bp, 0
+            je start
+            add si, 2
+            dec bp
+            mov word ptr [si], 0 
+            jmp clear_snake
+        
+        start:
+        mov snake_length, 0 ; reset score for next game loop
         game_loop:
+            call write_score
             call input
             call draw
-            call write_score
             call move
             call cls
             jmp game_loop
-
         ; should never reach this
-        mov ah, 4ch
-        int 21h
-    write_score:
+            mov ah, 4ch
+            int 21h
+    main_loop endp
+
+    printsp proc
+        space: 
+            mov ah, 02h
+            mov dl, 20h
+            int 21h 
+        loop space
+        ret
+    printsp endp
+
+    printnl proc 
+        nl:
+            mov ah, 02h
+            mov dl, 10
+            int 21h 
+        loop nl 
+        ret
+    printnl endp
+
+    cls proc ; clears the screen
+        mov ah, 07h          ; scroll down function
+        mov al, 0            ; number of lines to scroll
+        mov cx, 0
+        mov dx, 9090
+        mov bh, 00h          ; clear entire screen
+        int 10h
+        ret
+    cls endp
+
+    str_out proc
+        mov ax, 1301h   
+        mov bh, 00h   ;page
+        int 10h
+        ret 
+    str_out endp
+
+    resp PROC
+        mov ah, 01h         ;get resp
+        int 16h
+        mov ah, 00h         ;read resp 
+        int 16h
+        ret
+    resp endp
+
+    InvalidMsg proc
+        call cls
+        mov dh, 13 ;row
+        mov dl, 14 ;column
+        mov bl, 0Ah ;color
+        mov cx, strInvalid_l
+        lea bp, strInvalid
+        call str_out
+
+        call resp
+        cmp al, 27
+        je im_exit
+
+        ret
+
+        im_exit:
+            mov ah, 4ch
+            int 21h
+    InvalidMsg endp
+
+    write_score proc
+        mov ax, @data
+        mov es, ax 
         mov ax, 1300h ; interrupt for write string
         mov bx, 000Fh ; set page number and color of string
    
@@ -118,181 +632,368 @@
             cmp bx, 2
             jle print        
         ret
+    write_score endp 
 
-    cls: ; clears the screen
-        mov ah, 07h          ; scroll down function
-        mov al, 0            ; number of lines to scroll
-        mov cx, 0
-        mov dx, 9090
-        mov bh, 00h          ; clear entire screen
-        int 10h
-        ret
-
-    draw:
-        lea si, body_x
-        lea di, body_y 
-        mov bp, 0
-        
-        body:
-            mov cx, word ptr [si] ; get snake head x coord 
-            mov dx, word ptr [di] ; get snake head y coord
-
-        draw_body:
-            mov ax, 0c0fh
-            mov bh, 00h
-            int 10h             ; draw pixel
-
-            inc cx              
-            mov ax, cx
-            sub ax, word ptr [si] 
-            cmp ax, square_size
-            jle draw_body       ; check x axis
-
-            mov cx, word ptr [si]
-            inc dx 
-
-            mov ax, dx          
-            sub ax, word ptr [di]
-            cmp ax, square_size 
-            jle draw_body       ; check y axis
-            
-            add si, 2   ; get next x and y coords
-            add di, 2
-            ; the next remaining lines are for checking if we have iterated through the entirety of the snake
-            inc bp         
-            cmp bp, snake_length
-            jle body
-
-        mov cx, food_x
-        mov dx, food_y    
-        draw_food:
-            mov ax, 0c04h
-            mov bh, 00h
-            int 10h   
-
-            inc cx 
-            mov ax, cx
-            sub ax, food_x 
-            cmp ax, square_size 
-            jle draw_food 
-            
-            mov cx, food_x
-            inc dx 
-            mov ax, dx 
-            sub ax, food_y
-            cmp ax, square_size 
-            jle draw_food 
-        
-        
-        lea si, active_walls_x
-        lea di, active_walls_y  
-        mov bp, 0
-        
-        ;walls 
-        getwall:
-            mov cx, word ptr [si] 
-            mov dx, word ptr [di] ; point to active wall x and y coords
-
-        drawwall:
-            mov ax, 0c0fh
-            mov bh, 00h
-            int 10h         ;draw pixel
-
-            inc cx              
-            mov ax, cx
-            sub ax, word ptr [si] 
-            cmp ax, square_size
-            jle drawwall       ; check if entire pixel has been drawn on the x axis
-
-            mov cx, word ptr [si]
-            inc dx 
-
-            mov ax, dx          
-            sub ax, word ptr [di]
-            cmp ax, square_size 
-            jle drawwall       ; check if entire pixel has been drawn on the y axis
-            
-            add si, 2   ; get next x and y coords
-            add di, 2
-            ; check if we've gone through all the wall coords
-            inc bp         
-            cmp bp, wall_block_count
-            jl getwall
-        ret 
-    
-    input:
+    input proc
         mov ah, 01h ; get user input
         int 16h
-    
+
         jz back
 
         mov ah, 00h
         int 16h
         
         cmp al, 27 ; check if escape key
-        jne update ; update key_pressed if not 2 
-        mov ah, 4ch
-        int 21h
+        jne update ; update key_pressed if not esc
+        cmp paused, 0
+        je pause
+        mov paused, 0
+        jmp back
+        pause:
+            mov paused, 1
+        jmp back
 
         update:
             mov ah, key_pressed
             mov prev_key, ah
-            mov key_pressed, al
-           
+            mov key_pressed, al           
     back: ret 
+    input endp
 
-    ; thank you stackoverflow, very cool https://stackoverflow.com/questions/40698309/8086-random-number-generator-not-just-using-the-system-time
-    rng:       
-        mov ax, 25173
-        mul word ptr food_x
-        add ax, 13849
-        mov food_x, ax
+    draw proc
+        mov ax, @data
+        mov ds, ax 
+        lea si, snake_pos
+        mov dx, word ptr [si]
+        call calculate_pos
 
-        mov ax, 25173
-        mul word ptr food_y
-        add ax, 13849
-        mov food_y, bx
-        ret
+        mov ax, @data
+        mov ds, ax
+        mov bl, key_pressed
+        mov bh, prev_key
+
+        mov ax, @code
+        mov ds, ax
+
+        cmp bl, 'w'
+        je head_up
+        cmp bl, 's'
+        je head_down
+        cmp bl, 'a'
+        je head_left
+        cmp bl, 'd'
+        je head_right 
+
+        ; if invalid key is pressed, draw same head as the key pressed before
+        cmp bh, 'w'
+        je head_up
+        cmp bh, 's'
+        je head_down
+        cmp bh, 'a'
+        je head_left
+        cmp bh, 'd'
+        je head_right 
     
-    move:
+        head_up: 
+            lea si, snake_head_up
+            jmp draw_head
+        head_down:
+            lea si, snake_head_down
+            jmp draw_head
+        head_left:
+            lea si, snake_head_left
+            jmp draw_head
+        head_right:
+            lea si, snake_head_right
+        
+        draw_head:
+            call draw_img
+        
+        draw_body:      
+            push ax 
+            push bx 
+            push cx 
+            push dx 
+            push ds
+            push di
+            push si
+            push bp
+            
+            mov ax, @data
+            mov ds, ax  
+            mov bp, snake_length
+            lea si, snake_pos
+            add si, 2
+            try:
+                cmp bp, 0
+                jle draw_food
+                mov dx, word ptr [si]
+                add si, 2
+                push si
+                call calculate_pos
+                lea si, snake_body
+                call draw_img
+                pop si
+                mov ax, @data
+                mov ds, ax  
+                dec bp
+                jmp try
+        
+        draw_food:
+            pop bp
+            pop si
+            pop di
+            pop ds
+            pop dx 
+            pop cx 
+            pop bx 
+            pop ax 
+
+            mov ax, @data
+            mov ds, ax
+            mov dx, food_pos
+            call calculate_pos
+
+            mov ax, @code
+            mov ds, ax
+            lea si, food_map
+            call draw_img
+        
+        draw_border:
+            mov ax, @data
+            mov ds, ax
+            lea si, border_pos
+            mov bp, 0
+            do:
+                mov dx, word ptr [si]
+                add si, 2
+                push si
+                call calculate_pos 
+                mov ax, @code 
+                mov ds, ax
+                lea si, wall
+                call draw_img 
+                pop si 
+                mov ax, @data
+                mov ds, ax 
+                inc bp
+                cmp bp, 28h+28h+18h+18h
+                jl do
+        
+        mov ax, @data
+        mov ds, ax 
+
+        cmp difficulty, 0
+        je draw_easy
+        cmp difficulty, 1
+        je draw_med
+        cmp difficulty, 2
+        je draw_hard
+
+        draw_easy: 
+            ret
+        draw_med:
+            lea si, med_pos
+            jmp init_len 
+        draw_hard:
+            lea si, hard_pos
+        init_len:
+            mov bp, word ptr [si]
+        draw_wall: 
+            add si, 2
+            mov dx, word ptr [si]
+            push si
+            call calculate_pos 
+            mov ax, @code 
+            mov ds, ax
+            lea si, wall
+            call draw_img 
+            pop si 
+            mov ax, @data
+            mov ds, ax 
+            dec bp 
+            cmp bp, 0
+            jne draw_wall
+        ret
+
+    calculate_pos:  ; args: dx = coordinate | ret: di = coord in vram
+        mov ax, @code
+        mov ds, ax
+        push dx
+            mov ax, 8
+            mul dh
+            mov di, ax
+            mov ax, 8*320
+            mov bx, 0
+            add bl, dl
+            mul bx 
+            add di, ax
+        pop dx 
+        ret
+
+    draw_img:   ; args: si = bitmap addr
+        mov ax, 0A000h
+        mov es, ax   
+        mov cl, 8
+        y_axis:
+            push di
+                mov ch, 8
+        x_axis:
+            mov al, byte ptr ds:[si]
+            xor al, byte ptr es:[di]
+            mov byte ptr es:[di], al
+            inc si
+            inc di
+            dec ch
+            jnz x_axis
+        pop di
+        add di, 320
+        inc bl
+        dec cl 
+        jnz y_axis
+        ret
+    draw endp 
+
+    rng proc       
+        mov ax, @data
+        mov ds, ax
+    randstart:
+        mov ah, 00h
+        int 1ah 
+        
+        mov ax, dx 
+        xor dx, dx 
+        mov cx, 15h ; make sure y coord does not go out of bounds
+        div cx 
+
+        inc dl 
+        mov bl, dl ; y coord
+        
+        mov ah, 00h
+        int 1ah
+        
+        mov ax, dx 
+        xor dx, dx 
+        mov cx, 25h ; make sure x coord does not go out of bounds
+        div cx 
+        
+        inc dl
+        mov bh, dl  ; x coord
+        mov food_pos, bx
+
+        lea si, border_pos
+        mov bp, 0
+        find_border:
+            cmp bp, 28h+28h+18h+18h
+            jg cont
+            mov ax, word ptr [si]
+            mov bx, food_pos
+            cmp ax, bx 
+            je randstart    ; generate another coord if food_pos is already occupied by a wall
+            inc bp 
+            add si, 2
+            jmp find_border
+
+        cont:
+            cmp difficulty, 0
+            je snake_col
+            cmp difficulty, 1
+            je ldmedwall
+            cmp difficulty, 2
+            je ldhardwall            
+
+            ldmedwall:
+                lea si, med_pos 
+                jmp init_wall 
+            ldhardwall:
+                lea si, hard_pos 
+        init_wall:
+        mov bp, word ptr [si]
+        find_wall:
+            cmp bp, 0
+            je snake_col
+            add si, 2
+            dec bp 
+            mov ax, word ptr [si]
+            mov bx, food_pos
+            cmp ax, bx 
+            je randstart    ; generate another coord if food_pos is already occupied by a wall
+            jmp find_wall
+        snake_col:
+            lea si, snake_pos 
+            mov bp, snake_length 
+            snake_loop:
+                cmp bp, 0
+                je rngdone
+                dec bp
+                mov ax, word ptr [si]
+                mov bx, food_pos 
+                cmp ax, bx 
+                je genagain ; generate another coord if food_pos is already occupied by snake
+                add si, 2
+                jmp snake_loop
+        
+        genagain: 
+            call rng
+        rngdone:
+            ret
+    rng endp 
+
+    move proc
+        mov ax, @data
+        mov ds, ax
+        cmp paused, 1
+        jne time 
+        ret 
+        time:
         mov ah, 2ch ; get system time
         int 21h
         cmp dl, time_now
         je move     ; keep checking until we have a different time
         mov time_now, dl
-
-        lea si, body_x 
-        lea di, body_y
-
-        mov bp, 1
-        mov cx, word ptr [si]
-        mov temp_x, cx              ; temporarily store the value of snake head x coord
-        mov cx, word ptr [di]    
-        mov temp_y, cx              ; temporarily store the value of snake head y coord
         
+        cmp difficulty, 0 
+        je easydelay
+        cmp difficulty, 1
+        je meddelay
+        cmp difficulty, 2
+        je harddelay 
+        
+        easydelay: ; 150000 ms (249f0h)
+            mov cx, 2
+            mov dx, 049f0h
+            jmp calldelay
+        meddelay:  ; 125000 ms (1e848h)
+            mov cx, 1
+            mov dx, 0e848h
+            jmp calldelay
+        harddelay: ; 100000 ms (186a0h)
+            mov cx, 1
+            mov dx, 86a0h
+        calldelay:
+            call delay
+
+        lea si, snake_pos
+        mov dx, word ptr [si]
+        mov temp_pos, dx
+        mov bp, snake_length
         body_move: 
+            cmp bp, 0
+            je skip
             add si, 2                       ; get next x and y coords
-            add di, 2
-            mov cx, temp_x                  ; get previous x coord   
-            mov dx, word ptr [si]
-            mov word ptr [si], cx
-            mov temp_x, dx                  ; store current x coord value for next iteration
-            
-            mov cx, temp_y                  ; get previous y coord 
-            mov dx, word ptr [di]
-            mov word ptr [di], cx
-            mov temp_y, dx                  ; store current y coord value for next iteration
-            
-           
-            ; next remaining lines are for checking if we have iterated through the entirety of the snake
-            inc bp                           
-            cmp bp, snake_length
-            jle body_move
-        
-        lea si, body_x
-        lea di, body_y
+            mov dx, word ptr [si]  
+            mov cx, temp_pos
+            mov word ptr [si], cx 
+            mov temp_pos, dx
+            dec bp 
+            jmp body_move
+
+        skip:
+            mov ax, @data
+            mov ds, ax
+            lea si, snake_pos
         check_key:
-            mov ax, square_size
+            mov dx, word ptr [si]
             cmp key_pressed, 'w'
             je move_up 
             cmp key_pressed, 'a' 
@@ -305,185 +1006,441 @@
         move_up:
             cmp prev_key, 's'       ; if the previous key is the opposite direction, do nothing
             je ignore
-            sub word ptr [di], ax 
-            jmp collision 
+            cmp dl, 2   ; check if at the topmost side of the screen
+            jz stop
+            dec dl 
+            mov word ptr [si], dx
+            jmp collision
         move_down: 
             cmp prev_key, 'w'
             je ignore
-            add word ptr [di], ax
+            cmp dl, 22   ; check if at the bottommost side of the screen
+            jz stop
+            inc dl 
+            mov word ptr [si], dx
             jmp collision 
         move_left: 
             cmp prev_key, 'd'
             je ignore
-            sub word ptr [si], ax
+            cmp dh, 1   ; check if at the leftmost side of the screen
+            jz stop
+            dec dh 
+            mov word ptr [si], dx
             jmp collision 
         move_right: 
             cmp prev_key, 'a'
             je ignore
-            add word ptr [si], ax 
+            cmp dh, 38  ; check if at the rightmost side of the screen
+            jz stop
+            inc dh
+            mov word ptr [si], dx
             jmp collision
         ignore: 
             mov ah, prev_key
             mov key_pressed, ah
             jmp check_key
-        
-        collision:      ; checks for collision with food   ! TODO: collision with self !
-            mov cx, word ptr [si]
-            mov dx, word ptr [di]
-            mov ah, 0dh
-            mov bh, 00h
-            int 10h 
-       ; insert self collision here
-    
-       ;insert wall collision here
+        stop:
+            call cls
 
-       ; food collision
-            cmp al, 04h
-            jne return 
-            mov ax, snake_length
-            inc ax 
-            mov snake_length, ax
-            call rng 
+            mov ax, @data
+            mov ds, ax
+            mov es, ax 
+
+            lea bp, strUname
+            mov cx, strUname_l
+            mov bl, 0Fh
+            mov dh, 8
+            mov dl, 12
+            call str_out
             
-        return: ret
+            mov cx, 3
+            mov bp, 0
+            underscore:
+                mov ah, 2
+                mov dh, 10
+                mov dl, 18
+                add dx, bp 
+                inc bp
+                mov bh, 0
+                int 10h
 
-    ;walls stuff
-    init_walls:     ;definitely not the best way to write this but hey at least its modular (kinda) :kekw:
-                call rng_walls
-                mov dx, diffrand
-                mov cx, difficulty
-                cmp cx, 0h
-                jne checkmed
-                ret
+                mov ax, 092dh
+                mov bl, 0eh
+                mov bh, 0
+                push cx
+                mov cx, 1
+                int 10h
+                pop cx
+            loop underscore
+            
+            lea si, uname 
+            mov cx, 3
+            mov bp, 0
+            get_uname:
+                mov ah, 7
+                int 21h
+               
+                mov ah, 2
+                mov dh, 10
+                mov dl, 18
+                add dx, bp 
+                inc bp
+                mov bh, 0
+                int 10h
+
+                cmp al, 8
+                jne printchar
+
+                mov ah, 2
+                dec dx 
+                dec bp
+                dec bp
+                dec si
+                mov bh, 0
+                int 10h
+
+                mov ax, 0a2dh
+                mov bh, 0
+                mov cx, 1
+                int 10h 
+
+                jmp get_uname
+
+                printchar:
+                    mov ah, 0ah
+                    mov bh, 0
+                    mov bl, 0eh
+                    push cx
+                    mov cx, 1
+                    int 10h
+                    pop cx
                 
-    checkmed:   cmp cx, 1h
-                jne hard
-                ;medstage1
-                cmp dx, 0h
-                jne medstage2
-                call cmed1
-                ret
-    medstage2:  cmp dx, 1h
-            ;   jne medstage3
-                call cmed2
-                ret
-                ;hardstage1
-    hard:       cmp dx, 0h
-                jne hardstage2
-                call chard1
-                ret
-    hardstage2: cmp dx, 1h
-                ;jne hardstage3
-                call chard2
-                ret
+                mov byte ptr [si], al
+                inc si
+            cmp bp, 3
+            je confirm_uname
+            jmp get_uname
+            
+            confirm_uname:
+                lea bp, strCont
+                mov cx, strCont_l
+                mov bl, 0Fh
+                mov dh, 14
+                mov dl, 7
+                call str_out
 
-    ;wall calls
-    ;med1       
-    cmed1:      mov wall_block_count, 6h
-                ;med1 x coords
-                lea si, active_walls_x
-                lea di, med1_x
-                mov cx, 6h
-    med1xloop:  mov dx, word ptr [di]
-                mov word ptr [si], dx
-                add si, 2
-                add di, 2
-                dec cx
-                jnz med1xloop
-                ;med1 y coords
-                lea si, active_walls_y
-                lea di, med1_y
-                mov cx, 6h
-    med1yloop:  mov dx, word ptr [di]
-                mov word ptr [si], dx
-                add si, 2
-                add di, 2
-                dec cx
-                jnz med1yloop
-                ret
-    ;med2
-    cmed2:      mov wall_block_count, 6h
-                ;med1 x coords
-                lea si, active_walls_x
-                lea di, med2_x
-                mov cx, 6h
-    med2xloop:  mov dx, word ptr [di]
-                mov word ptr [si], dx
-                add si, 2
-                add di, 2
-                dec cx
-                jnz med2xloop
-                ;med1 y coords
-                lea si, active_walls_y
-                lea di, med2_y
-                mov cx, 6h
-    med2yloop:  mov dx, word ptr [di]
-                mov word ptr [si], dx
-                add si, 2
-                add di, 2
-                dec cx
-                jnz med2yloop
-                ret
+                mov ah, 7
+                int 21h
+                mov byte ptr [si], '$'
+                mov ax, snake_length
+                lea si, iscore 
+                mov byte ptr [si+1], al
+             
+            ;open file  
+            mov ax, 3d02h
+            lea dx, filename
+            int 21h
+            mov handle, ax
+            ;seek to start of file
+            mov ax, 4200h
+            mov bx, handle
+            mov cx, 0
+            mov dx, 0
+            int 21h
 
-    ;hard1
-    chard1:     mov wall_block_count, 0ch
-                ;med1 x coords
-                lea si, active_walls_x
-                lea di, hard1_x
-                mov cx, 0ch
-    hard1xloop: mov dx, word ptr [di]
-                mov word ptr [si], dx
-                add si, 2
-                add di, 2
-                dec cx
-                jnz hard1xloop
-                ;med1 y coords
-                lea si, active_walls_y
-                lea di, hard1_y
-                mov cx, 0ch
-    hard1yloop: mov dx, word ptr [di]
-                mov word ptr [si], dx
-                add si, 2
-                add di, 2
-                dec cx
-                jnz hard1yloop
-                ret
-    ;hard2
-    chard2:     mov wall_block_count, 0ch
-                ;med1 x coords
-                lea si, active_walls_x
-                lea di, hard2_x
-                mov cx, 0ch
-    hard2xloop: mov dx, word ptr [di]
-                mov word ptr [si], dx
-                add si, 2
-                add di, 2
-                dec cx
-                jnz hard2xloop
-                ;med1 y coords
-                lea si, active_walls_y
-                lea di, hard2_y
-                mov cx, 0ch
-    hard2yloop: mov dx, word ptr [di]
-                mov word ptr [si], dx
-                add si, 2
-                add di, 2
-                dec cx
-                jnz hard2yloop
-                ret
+            ;read from file
+            mov ah, 3fh
+            mov bx, handle
+            mov cx, 1fh
+            lea dx, scores
+            int 21h
+            
+            ;insert
+            lea di, scores
+            xor ax, ax
+            mov al, byte ptr [di]
+            mov bl, 06h ;go to the last score record
+            mul bl
+            xor ah, ah
+            add di, ax ;move di to the the last byte of the last record
+            add di, 01h
+            insrec:
+                lea si, uname
+                mov cx, 04h
+                inpname:
+                    mov dl, byte ptr [si]
+                    mov byte ptr [di], dl
+                    inc si
+                    inc di
+                    loop inpname
+                lea si, iscore
+                mov dh, byte ptr [si]
+                mov dl, byte ptr [si+1]
+                mov byte ptr [di], dh
+                mov byte ptr [di+1], dl
+            
+            ;increment score size 
+            lea si, scores
+            mov ch, byte ptr [si]
+            inc ch
+            mov byte ptr [si], ch
+            
+            ;SORTING
+            mov dh, ch
+            ;ch = outer loop counter
+            ;dh = inner loop counter
+            outsort:
+                lea si, scores ;reset pointers
+                lea di, scores
+                add si, 06h
+                add di, 06h
+                push cx
+                mov ch, dh
+                insort:
+                    mov di, si
+                    mov al, byte ptr [si]
+                    mov ah, byte ptr [si-1]
+                    mov bl, byte ptr [si+6]
+                    mov bh, byte ptr [si+5]
+                    cmp ax, bx
+                    jge noswap
+                    add di, 01h
+                    sub si, 05h
+                    mov dl, 06h
+                    swapscore:
+                        mov bh, byte ptr [di]
+                        mov bl, byte ptr [si]
+                        mov byte ptr [di], bl
+                        mov byte ptr [si], bh
+                        inc si
+                        inc di
+                        dec dl
+                        jnz swapscore
+                    noswap:
+                    add si, 06h
+                    dec ch 
+                jnz insort
+                pop cx
+                dec dh
+                dec ch
+            jnz outsort
 
-    
-    rng_walls:
-        ;get random num from 0-9 using sys time. stackoverflow is very epic
-        mov ah, 00h
-        int 1ah
-        mov ax, dx
-        xor dx, dx ;clear dx
-        mov cx, 10
-        div cx
-        and dx, 01h;    ;AND the result by 0001h, we only grab the first bit for a 0-1 random range.
-                        ;if we want to increase the stage selection, we AND it by 0002h for a 0-3 range, which increases the options to 4 stages, etc.
-                        ;not evenly distributed tbh
-        mov diffrand, dx
+            ;cap score size for storage
+            lea si, scores
+            mov al, byte ptr [si]
+            cmp al, 05h
+            jle undercap
+            mov al, 05h
+            undercap:
+            mov byte ptr[si], al
+                
+            ;seek to start of file
+            mov ax, 4200h
+            mov bx, handle
+            mov cx, 0
+            mov dx, 0
+            int 21h
+            ;write to file
+            mov ah, 40h
+            mov bx, handle
+            lea dx, scores
+            mov cx, 1fh;
+            int 21h
+            ;close file
+            mov ah, 3eh
+            mov bx, handle
+            int 21h
+
+            call game_over_page
+            ret
+        collision:
+            mov ax, @data
+            mov ds, ax 
+            ; self collision
+            lea si, snake_pos
+            lea di, snake_pos
+            mov bp, snake_length
+            add di, 6
+            body_collision:
+                cmp bp, 3
+                jle food_collision
+                dec bp
+                add di, 2
+                mov ax, word ptr [si]
+                mov bx, word ptr [di]
+
+                inc ah 
+                cmp ah, bh 
+                jng body_collision
+                dec ah 
+                
+                inc bh
+                cmp ah, bh
+                jnl body_collision
+                dec bh 
+                
+                inc al
+                cmp al, bl 
+                jng body_collision
+                dec al
+
+                inc bl
+                cmp al, bl
+                jnl body_collision
+                dec bl 
+                jmp stop
+                ;call game_over_page
+
+                food_collision:
+                    lea si, snake_pos
+                    mov ax, word ptr [si]
+                    mov bx, food_pos
+
+                    inc ah
+                    cmp ah, bh 
+                    jng wall_collision 
+                    dec ah 
+
+                    inc bh
+                    cmp ah, bh
+                    jnl wall_collision
+
+                    inc al
+                    cmp al, bl 
+                    jng wall_collision 
+                    dec al
+
+                    inc bl
+                    cmp al, bl
+                    jnl wall_collision 
+
+                    inc snake_length
+                    
+                    mov ax, 120Ch 
+                    mov food_pos, ax
+                    call rng 
+            wall_collision:
+                mov ax, @data
+                mov ds, ax 
+                lea di, snake_pos 
+
+                cmp difficulty, 0
+                je collision_easy 
+                cmp difficulty, 1
+                je collision_med
+                cmp difficulty, 2
+                je collision_hard 
+
+                collision_easy:
+                    ret
+                collision_med:
+                    lea si, med_pos
+                    jmp init
+                collision_hard: 
+                    lea si, hard_pos 
+                init:
+                    mov bp, word ptr [si]
+                check_wall_col:
+                    cmp bp, 0
+                    jl return
+                    dec bp
+                    add si, 2
+                    mov ax, word ptr [di]
+                    mov bx, word ptr [si]
+                    inc ah
+                    cmp ah, bh 
+                    jng check_wall_col 
+                    dec ah 
+
+                    inc bh
+                    cmp ah, bh
+                    jnl check_wall_col 
+
+                    inc al
+                    cmp al, bl 
+                    jng check_wall_col 
+                    dec al
+
+                    inc bl
+                    cmp al, bl
+                    jnl check_wall_col
+
+                    jmp stop     
+    return: 
         ret
+    move endp
+
+;DELAY 125000 (1e848h) ; args: cx dx = time in ms
+delay proc   
+  ;mov cx, 1     ;HIGH WORD.
+  ;mov dx, 0e848h ;LOW WORD.
+  mov ah, 86h    ;WAIT.
+  int 15h
+  ret
+delay endp   
+
+    ; bitmaps
+    snake_head_up: 
+        DB 00h,00h,00h,00h,00h,00h,00h,00h     
+        DB 00h,00h,00h,0Ch,0Ch,00h,00h,00h     
+        DB 00h,00h,0Ah,0Ah,0Ah,0Ah,00h,00h     
+        DB 00h,0Ah,00h,0Ah,0Ah,00h,0Ah,00h     
+        DB 00h,0Ah,0Ah,0Ah,0Ah,0Ah,0Ah,00h     
+        DB 00h,02h,0Ah,0Ah,0Ah,0Ah,02h,00h     
+        DB 00h,02h,0Ah,0Ah,0Ah,0Ah,02h,00h     
+        DB 00h,0Ah,02h,0Ah,0Ah,02h,0Ah,00h     
+    snake_head_down: 
+        DB 00h,0Ah,02h,0Ah,0Ah,02h,0Ah,00h    
+        DB 00h,02h,0Ah,0Ah,0Ah,0Ah,02h,00h     
+        DB 00h,02h,0Ah,0Ah,0Ah,0Ah,02h,00h     
+        DB 00h,0Ah,0Ah,0Ah,0Ah,0Ah,0Ah,00h     
+        DB 00h,0Ah,00h,0Ah,0Ah,00h,0Ah,00h     
+        DB 00h,00h,0Ah,0Ah,0Ah,0Ah,00h,00h     
+        DB 00h,00h,00h,0Ch,0Ch,00h,00h,00h     
+        DB 00h,00h,00h,00h,00h,00h,00h,00h     
+    snake_head_left: 
+        DB 00h,00h,00h,00h,00h,00h,00h,00h     
+        DB 00h,00h,00h,0Ah,0Ah,02h,00h,0Ah     
+        DB 00h,00h,0Ah,00h,0Ah,0Ah,0Ah,02h     
+        DB 00h,0Ch,0Ah,0Ah,0Ah,02h,0Ah,0Ah     
+        DB 00h,0Ch,0Ah,0Ah,0Ah,02h,0Ah,0Ah     
+        DB 00h,00h,0Ah,00h,0Ah,0Ah,0Ah,02h     
+        DB 00h,00h,00h,0Ah,0Ah,02h,00h,0Ah     
+        DB 00h,00h,00h,00h,00h,00h,00h,00h     
+    snake_head_right: 
+        DB 00h,00h,00h,00h,00h,00h,00h,00h     
+        DB 0Ah,00h,02h,0Ah,0Ah,0Ah,00h,00h     
+        DB 02h,0Ah,0Ah,0Ah,00h,0Ah,00h,00h     
+        DB 0Ah,0Ah,02h,0Ah,0Ah,0Ah,0Ch,00h     
+        DB 0Ah,0Ah,02h,0Ah,0Ah,0Ah,0Ch,00h     
+        DB 02h,0Ah,0Ah,0Ah,00h,0Ah,00h,00h     
+        DB 0Ah,00h,02h,0Ah,0Ah,0Ah,00h,00h     
+        DB 00h,00h,00h,00h,00h,00h,00h,00h     
+    snake_body:
+        DB 00h,00h,00h,00h,00h,00h,00h,00h     
+        DB 00h,02h,0Ah,0Ah,0Ah,0Ah,02h,00h     
+        DB 00h,0Ah,02h,0Ah,0Ah,02h,0Ah,00h     
+        DB 00h,0Ah,0Ah,0Ah,0Ah,0Ah,0Ah,00h     
+        DB 00h,0Ah,0Ah,0Ah,0Ah,0Ah,0Ah,00h     
+        DB 00h,0Ah,02h,0Ah,0Ah,02h,0Ah,00h     
+        DB 00h,02h,0Ah,0Ah,0Ah,0Ah,02h,00h     
+        DB 00h,00h,00h,00h,00h,00h,00h,00h     
+    food_map:
+        DB 00h,00h,00h,0Ah,02h,00h,00h,00h  
+        DB 00h,00h,0Ch,00h,00h,0Ch,00h,00h  
+        DB 00h,0Ch,0Fh,0Ch,0Ch,0Ch,0Ch,00h  
+        DB 00h,0Fh,0Ch,0Ch,0Ch,0Ch,0Ch,00h  
+        DB 00h,0Fh,0Ch,0Ch,0Ch,0Ch,0Ch,00h  
+        DB 00h,0Ch,0Ch,0Ch,0Ch,0Ch,0Ch,00h  
+        DB 00h,00h,0Ch,0Ch,0Ch,0Ch,00h,00h  
+        DB 00h,00h,00h,00h,00h,00h,00h,00h  
+    wall:
+        DB 06h,04h,06h,06h,06h,06h,04h,06h
+        DB 04h,04h,06h,06h,06h,06h,04h,04h
+        DB 06h,04h,0Eh,0Eh,0Eh,0Eh,04h,06h
+        DB 06h,04h,0Eh,06h,06h,0Eh,04h,06h
+        DB 06h,04h,0Eh,06h,06h,0Eh,04h,06h
+        DB 06h,04h,0Eh,0Eh,0Eh,0Eh,04h,06h
+        DB 04h,04h,06h,06h,06h,06h,04h,04h
+        DB 06h,04h,06h,06h,06h,06h,04h,06h
 end
